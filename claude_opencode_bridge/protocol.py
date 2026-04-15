@@ -40,6 +40,8 @@ def build_prompt_from_request(payload: dict[str, Any], initial_turn: bool) -> st
     if not isinstance(messages, list):
         messages = []
 
+    system_text = flatten_system(payload.get("system"))
+
     if not initial_turn:
         for message in reversed(messages):
             if message.get("role") == "user":
@@ -48,8 +50,21 @@ def build_prompt_from_request(payload: dict[str, Any], initial_turn: bool) -> st
                     return text
         return "Continue."
 
+    has_assistant_history = any(
+        message.get("role") == "assistant" for message in messages
+    )
+    if not has_assistant_history:
+        for message in reversed(messages):
+            if message.get("role") != "user":
+                continue
+            text = flatten_content(message.get("content"))
+            if not text:
+                continue
+            if system_text and len(system_text) <= 2000:
+                return f"System instructions:\n{system_text}\n\nUser request:\n{text}"
+            return text
+
     parts: list[str] = []
-    system_text = flatten_system(payload.get("system"))
     if system_text and len(system_text) <= 2000:
         parts.append("System instructions:\n" + system_text)
 

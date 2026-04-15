@@ -16,7 +16,7 @@ Use this when the plugin-native Anthropic path is authenticated but still behave
 - exposes a local Anthropic-style HTTP endpoint for OpenCode
 - maps OpenCode sessions to stable Claude CLI sessions
 - uses `claude --print` plus `--resume` for multi-turn continuity
-- returns Anthropic-style JSON or SSE back to OpenCode
+- streams Claude message events incrementally back to OpenCode as Anthropic-style SSE
 - ships with macOS install, uninstall, doctor, and smoke scripts
 
 ## What it does not do

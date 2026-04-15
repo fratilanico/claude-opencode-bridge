@@ -36,7 +36,7 @@ async def test_health_returns_bridge_status(tmp_path):
 async def test_messages_endpoint_streams_anthropic_events(tmp_path):
     calls = []
 
-    async def fake_runner(prompt, claude_session_id, resume, model):
+    async def fake_stream_runner(prompt, claude_session_id, resume, model):
         calls.append(
             {
                 "prompt": prompt,
@@ -45,10 +45,61 @@ async def test_messages_endpoint_streams_anthropic_events(tmp_path):
                 "model": model,
             }
         )
-        return ClaudeRunResult(text="ok", claude_session_id=claude_session_id)
+        yield {
+            "type": "stream_event",
+            "event": {
+                "type": "message_start",
+                "message": {
+                    "id": "msg_test",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": model,
+                    "content": [],
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 0, "output_tokens": 0},
+                },
+            },
+        }
+        yield {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "text", "text": ""},
+            },
+        }
+        yield {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {"type": "text_delta", "text": "ok"},
+            },
+        }
+        yield {
+            "type": "stream_event",
+            "event": {"type": "content_block_stop", "index": 0},
+        }
+        yield {
+            "type": "stream_event",
+            "event": {
+                "type": "message_delta",
+                "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+            },
+        }
+        yield {"type": "stream_event", "event": {"type": "message_stop"}}
+        yield {
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "result": "ok",
+        }
 
     app = create_app(
-        session_store_path=tmp_path / "sessions.json", claude_runner=fake_runner
+        session_store_path=tmp_path / "sessions.json",
+        claude_stream_runner=fake_stream_runner,
     )
     client = await make_client(app)
 
@@ -72,6 +123,7 @@ async def test_messages_endpoint_streams_anthropic_events(tmp_path):
         assert "event: message_start" in body
         assert "event: content_block_delta" in body
         assert '"text":"ok"' in body
+        assert "data: [DONE]" in body
         assert calls[0]["resume"] is False
     finally:
         await client.close()
@@ -157,5 +209,46 @@ async def test_messages_endpoint_returns_504_on_claude_timeout(tmp_path):
 
         assert resp.status == 504
         assert data["error"]["type"] == "timeout_error"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_stream_messages_endpoint_emits_error_event_on_timeout(tmp_path):
+    async def fake_stream_runner(prompt, claude_session_id, resume, model):
+        from claude_opencode_bridge.server import (
+            CLAUDE_RUN_TIMEOUT_SECONDS,
+            ClaudeRunnerTimeout,
+        )
+
+        if False:
+            yield {}
+        raise ClaudeRunnerTimeout(
+            f"Claude CLI timed out after {CLAUDE_RUN_TIMEOUT_SECONDS}s for model {model}"
+        )
+
+    app = create_app(
+        session_store_path=tmp_path / "sessions.json",
+        claude_stream_runner=fake_stream_runner,
+    )
+    client = await make_client(app)
+
+    try:
+        resp = await client.post(
+            "/v1/messages",
+            json={
+                "model": "claude-sonnet-4-6",
+                "stream": True,
+                "messages": [
+                    {"role": "user", "content": [{"type": "text", "text": "hello"}]}
+                ],
+            },
+            headers={"x-claude-code-session-id": "open-session-stream-timeout"},
+        )
+        body = await resp.text()
+
+        assert resp.status == 200
+        assert "event: error" in body
+        assert '"type":"timeout_error"' in body
     finally:
         await client.close()

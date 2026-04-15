@@ -17,6 +17,17 @@
 5. The bridge runs `claude --print` with either `--session-id` or `--resume`.
 6. The bridge returns Anthropic-style JSON or SSE back to OpenCode.
 
+## Streaming behavior
+
+For `stream: true` requests, the bridge does not wait for full Claude completion anymore.
+
+- it runs Claude with `--output-format stream-json`
+- it reads stdout line-by-line
+- it filters out non-message noise such as hook wrappers and system events
+- it forwards Claude `message_start`, `content_block_delta`, and related message events into Anthropic SSE immediately
+
+This preserves OpenCode's normal responsive feel much more closely than the earlier buffered replay path.
+
 ## Why this is different from plugin-native auth
 
 This repo does not patch OpenCode from inside the client.

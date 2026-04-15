@@ -40,6 +40,18 @@ def test_build_prompt_from_request_for_follow_up_turn() -> None:
     assert prompt == "latest ask"
 
 
+def test_build_prompt_from_request_for_simple_initial_turn() -> None:
+    payload = {
+        "messages": [
+            {"role": "user", "content": [{"type": "text", "text": "Reply exactly: ok"}]}
+        ]
+    }
+
+    prompt = build_prompt_from_request(payload, initial_turn=True)
+
+    assert prompt == "Reply exactly: ok"
+
+
 def test_extract_session_id_prefers_known_headers() -> None:
     session_id = extract_session_id({"x-claude-code-session-id": "session-123"})
     assert session_id == "session-123"

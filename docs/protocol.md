@@ -24,7 +24,7 @@ If none are present, it generates a new session id.
 ## Response shaping
 
 - non-stream requests return a single Anthropic-style JSON message
-- stream requests return Anthropic-style SSE frames with one text block
+- stream requests forward real Claude `stream_event` message frames as Anthropic SSE
 
 ## Compatibility limit
 
