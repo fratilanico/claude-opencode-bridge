@@ -81,3 +81,7 @@ bash scripts/install-git-hooks.sh
 - All examples are localhost-only or placeholder-only.
 
 See `SECURITY.md` and `docs/release-checklist.md` before publishing changes.
+
+---
+
+Built by [APEX OS](https://apex-os.com)
