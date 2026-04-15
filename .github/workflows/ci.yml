@@ -1,0 +1,26 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+      - name: Run tests
+        run: pytest tests -q
+      - name: Compile Python
+        run: python -m py_compile claude_opencode_bridge/*.py
+      - name: Check shell syntax
+        run: bash -n scripts/*.sh
+      - name: Check for secrets
+        run: bash scripts/check-no-secrets.sh

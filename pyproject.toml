@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "claude-opencode-bridge"
+version = "0.1.0"
+description = "Mac-first Anthropic-compatible bridge for OpenCode backed by local Claude CLI sessions."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "aiohttp>=3.9,<4",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8,<9",
+  "pytest-asyncio>=0.23,<1",
+]
+
+[project.scripts]
+claude-opencode-bridge = "claude_opencode_bridge.server:main"
+
+[tool.setuptools.packages.find]
+include = ["claude_opencode_bridge*"]
