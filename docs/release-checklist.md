@@ -9,6 +9,7 @@
 ## Secret hygiene
 
 - [ ] `bash scripts/check-no-secrets.sh`
+- [ ] `bash scripts/install-git-hooks.sh`
 - [ ] `git status --short`
 - [ ] `git diff --cached`
 - [ ] examples contain placeholders or localhost only

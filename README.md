@@ -42,6 +42,7 @@ pip install -U pip
 pip install -e .[dev]
 
 bash scripts/install-macos.sh
+bash scripts/install-git-hooks.sh
 bash scripts/doctor.sh
 bash scripts/smoke-session.sh saffron
 ```
@@ -70,6 +71,7 @@ pytest tests -q
 python3 -m py_compile claude_opencode_bridge/*.py
 bash -n scripts/*.sh
 bash scripts/check-no-secrets.sh
+bash scripts/install-git-hooks.sh
 ```
 
 ## Security

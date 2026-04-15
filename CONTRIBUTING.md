@@ -7,6 +7,8 @@ python3 -m venv .venv
 . .venv/bin/activate
 pip install -U pip
 pip install -e .[dev]
+chmod +x scripts/*.sh
+bash scripts/install-git-hooks.sh
 pytest tests -q
 ```
 
