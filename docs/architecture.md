@@ -26,6 +26,17 @@ For `stream: true` requests, the bridge does not wait for full Claude completion
 - it filters out non-message noise such as hook wrappers and system events
 - it forwards Claude `message_start`, `content_block_delta`, and related message events into Anthropic SSE immediately
 
+## Tool schema translation
+
+Claude CLI tool-use payloads are not always schema-identical to OpenCode runtime expectations.
+
+The bridge normalizes common tool inputs before forwarding them to OpenCode, including:
+
+- `file_path` -> `filePath`
+- `old_string` -> `oldString`
+- `new_string` -> `newString`
+- default `Bash.description` and `Bash.timeout` when Claude omits them
+
 This preserves OpenCode's normal responsive feel much more closely than the earlier buffered replay path.
 
 ## Why this is different from plugin-native auth

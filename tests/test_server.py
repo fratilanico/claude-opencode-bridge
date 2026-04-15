@@ -1,7 +1,11 @@
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
-from claude_opencode_bridge.server import ClaudeRunResult, create_app
+from claude_opencode_bridge.server import (
+    ClaudeRunResult,
+    create_app,
+    translate_tool_input,
+)
 
 
 async def make_client(app):
@@ -250,5 +254,132 @@ async def test_stream_messages_endpoint_emits_error_event_on_timeout(tmp_path):
         assert resp.status == 200
         assert "event: error" in body
         assert '"type":"timeout_error"' in body
+    finally:
+        await client.close()
+
+
+def test_translate_tool_input_maps_read_file_path() -> None:
+    translated = translate_tool_input(
+        "Read", {"file_path": "/tmp/test.md", "limit": 1, "offset": 2}
+    )
+
+    assert translated == {"filePath": "/tmp/test.md", "limit": 1, "offset": 2}
+
+
+def test_translate_tool_input_adds_bash_defaults() -> None:
+    translated = translate_tool_input("Bash", {"command": "pwd"})
+
+    assert translated["command"] == "pwd"
+    assert translated["description"].startswith("Runs command:")
+    assert translated["timeout"] == 120000
+
+
+@pytest.mark.asyncio
+async def test_stream_messages_translate_tool_use_input_keys(tmp_path):
+    async def fake_stream_runner(prompt, claude_session_id, resume, model):
+        yield {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {
+                    "type": "tool_use",
+                    "id": "toolu_test",
+                    "name": "Read",
+                    "input": {},
+                },
+            },
+        }
+        yield {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {
+                    "type": "input_json_delta",
+                    "partial_json": '{"file_path":"/tmp/test.md","limit":1}',
+                },
+            },
+        }
+        yield {
+            "type": "stream_event",
+            "event": {"type": "content_block_stop", "index": 0},
+        }
+        yield {
+            "type": "stream_event",
+            "event": {
+                "type": "message_start",
+                "message": {
+                    "id": "msg_test",
+                    "type": "message",
+                    "role": "assistant",
+                    "model": model,
+                    "content": [],
+                    "stop_reason": None,
+                    "stop_sequence": None,
+                    "usage": {"input_tokens": 0, "output_tokens": 0},
+                },
+            },
+        }
+        yield {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_start",
+                "index": 1,
+                "content_block": {"type": "text", "text": ""},
+            },
+        }
+        yield {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "index": 1,
+                "delta": {"type": "text_delta", "text": "ok"},
+            },
+        }
+        yield {
+            "type": "stream_event",
+            "event": {"type": "content_block_stop", "index": 1},
+        }
+        yield {
+            "type": "stream_event",
+            "event": {
+                "type": "message_delta",
+                "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+                "usage": {"input_tokens": 0, "output_tokens": 0},
+            },
+        }
+        yield {"type": "stream_event", "event": {"type": "message_stop"}}
+        yield {
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "result": "ok",
+        }
+
+    app = create_app(
+        session_store_path=tmp_path / "sessions.json",
+        claude_stream_runner=fake_stream_runner,
+    )
+    client = await make_client(app)
+
+    try:
+        resp = await client.post(
+            "/v1/messages",
+            json={
+                "model": "claude-sonnet-4-6",
+                "stream": True,
+                "messages": [
+                    {"role": "user", "content": [{"type": "text", "text": "hello"}]}
+                ],
+            },
+            headers={"x-claude-code-session-id": "open-session-tool-translate"},
+        )
+        body = await resp.text()
+
+        assert resp.status == 200
+        assert '\\"filePath\\":\\"/tmp/test.md\\"' in body
+        assert "file_path" not in body
+        assert '"text":"ok"' in body
     finally:
         await client.close()

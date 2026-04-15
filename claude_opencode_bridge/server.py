@@ -51,6 +51,15 @@ STREAM_EVENT_TYPES = {
     "message_delta",
     "message_stop",
 }
+TOOL_INPUT_KEY_ALIASES = {
+    "read": {"file_path": "filePath"},
+    "write": {"file_path": "filePath"},
+    "edit": {
+        "file_path": "filePath",
+        "old_string": "oldString",
+        "new_string": "newString",
+    },
+}
 
 
 @dataclass
@@ -76,6 +85,67 @@ def build_claude_env() -> dict[str, str]:
     for key in DIRECT_CLAUDE_ENV_UNSET:
         env.pop(key, None)
     return env
+
+
+def translate_tool_input(tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+    aliases = TOOL_INPUT_KEY_ALIASES.get(tool_name.lower(), {})
+    translated = {aliases.get(key, key): value for key, value in payload.items()}
+
+    if tool_name.lower() == "bash":
+        if "description" not in translated and translated.get("command"):
+            first_line = str(translated["command"]).strip().splitlines()[0][:60]
+            translated["description"] = f"Runs command: {first_line}"
+        translated.setdefault("timeout", 120000)
+
+    return translated
+
+
+async def emit_translated_tool_use(
+    response: web.StreamResponse,
+    start_event: dict[str, Any],
+    input_parts: list[str],
+) -> None:
+    content_block = dict(start_event.get("content_block") or {})
+    tool_name = str(content_block.get("name") or "")
+    translated_json = "".join(input_parts)
+
+    if translated_json:
+        try:
+            translated_payload = translate_tool_input(
+                tool_name, json.loads(translated_json)
+            )
+            translated_json = json.dumps(translated_payload, separators=(",", ":"))
+        except json.JSONDecodeError:
+            pass
+
+    start_payload = {
+        **start_event,
+        "content_block": {**content_block, "input": {}},
+    }
+    await response.write(sse_frame("content_block_start", start_payload))
+    if translated_json:
+        await response.write(
+            sse_frame(
+                "content_block_delta",
+                {
+                    "type": "content_block_delta",
+                    "index": start_event.get("index", 0),
+                    "delta": {
+                        "type": "input_json_delta",
+                        "partial_json": translated_json,
+                    },
+                },
+            )
+        )
+    await response.write(
+        sse_frame(
+            "content_block_stop",
+            {
+                "type": "content_block_stop",
+                "index": start_event.get("index", 0),
+            },
+        )
+    )
 
 
 def build_claude_stream_command(
@@ -313,6 +383,7 @@ async def handle_messages(request: web.Request) -> web.StreamResponse | web.Resp
         )
         await response.prepare(request)
         saw_success = False
+        pending_tool_use: dict[str, Any] | None = None
 
         try:
             async for item in claude_stream_runner(
@@ -323,6 +394,39 @@ async def handle_messages(request: web.Request) -> web.StreamResponse | web.Resp
                 if item_type == "stream_event":
                     event = item.get("event") or {}
                     event_type = event.get("type")
+
+                    if event_type == "content_block_start":
+                        content_block = event.get("content_block") or {}
+                        if content_block.get("type") == "tool_use":
+                            pending_tool_use = {"start_event": event, "input_parts": []}
+                            continue
+
+                    if pending_tool_use is not None:
+                        start_event = pending_tool_use["start_event"]
+                        if (
+                            event_type == "content_block_delta"
+                            and event.get("index") == start_event.get("index")
+                            and (event.get("delta") or {}).get("type")
+                            == "input_json_delta"
+                        ):
+                            pending_tool_use["input_parts"].append(
+                                str(
+                                    (event.get("delta") or {}).get("partial_json") or ""
+                                )
+                            )
+                            continue
+
+                        if event_type == "content_block_stop" and event.get(
+                            "index"
+                        ) == start_event.get("index"):
+                            await emit_translated_tool_use(
+                                response,
+                                start_event,
+                                pending_tool_use["input_parts"],
+                            )
+                            pending_tool_use = None
+                            continue
+
                     if event_type in STREAM_EVENT_TYPES:
                         await response.write(sse_frame(event_type, event))
                 elif item_type == "result":
