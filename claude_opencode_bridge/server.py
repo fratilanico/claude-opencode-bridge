@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -23,6 +24,11 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 7411
 DEFAULT_STATE_DIR = Path.home() / ".claude-opencode-bridge"
 DEFAULT_SESSION_STORE = DEFAULT_STATE_DIR / "sessions.json"
+CLAUDE_RUN_TIMEOUT_SECONDS = int(
+    os.environ.get("APEX_OPENCODE_BRIDGE_CLAUDE_TIMEOUT")
+    or os.environ.get("CLAUDE_OPENCODE_BRIDGE_CLAUDE_TIMEOUT")
+    or "900"
+)
 HOST_KEY = web.AppKey("host", str)
 PORT_KEY = web.AppKey("port", int)
 SESSION_STORE_KEY = web.AppKey("session_store", SessionStore)
@@ -47,11 +53,15 @@ class ClaudeRunnerError(RuntimeError):
     pass
 
 
+class ClaudeRunnerTimeout(ClaudeRunnerError):
+    pass
+
+
 ClaudeRunner = Callable[[str, str, bool, str], Awaitable[ClaudeRunResult]]
 
 
 def build_claude_env() -> dict[str, str]:
-    env = dict(subprocess.os.environ)
+    env = dict(os.environ)
     for key in DIRECT_CLAUDE_ENV_UNSET:
         env.pop(key, None)
     return env
@@ -70,13 +80,18 @@ def _run_claude_process(
         command.extend(["--session-id", claude_session_id])
     command.extend(["--print", "--model", model, "-p", prompt])
 
-    proc = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        timeout=300,
-        env=build_claude_env(),
-    )
+    try:
+        proc = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=CLAUDE_RUN_TIMEOUT_SECONDS,
+            env=build_claude_env(),
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise ClaudeRunnerTimeout(
+            f"Claude CLI timed out after {CLAUDE_RUN_TIMEOUT_SECONDS}s for model {model}"
+        ) from exc
     if proc.returncode != 0:
         detail = (proc.stderr or proc.stdout or "Claude CLI failed").strip()
         raise ClaudeRunnerError(detail)
@@ -172,6 +187,14 @@ async def handle_messages(request: web.Request) -> web.StreamResponse | web.Resp
 
     try:
         result = await claude_runner(prompt, claude_session_id, resume, model)
+    except ClaudeRunnerTimeout as exc:
+        return web.json_response(
+            {
+                "type": "error",
+                "error": {"type": "timeout_error", "message": str(exc)},
+            },
+            status=504,
+        )
     except ClaudeRunnerError as exc:
         return web.json_response(
             {

@@ -122,3 +122,40 @@ async def test_messages_endpoint_resumes_existing_session(tmp_path):
         assert calls == [False, True]
     finally:
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_messages_endpoint_returns_504_on_claude_timeout(tmp_path):
+    async def fake_runner(prompt, claude_session_id, resume, model):
+        from claude_opencode_bridge.server import (
+            CLAUDE_RUN_TIMEOUT_SECONDS,
+            ClaudeRunnerTimeout,
+        )
+
+        raise ClaudeRunnerTimeout(
+            f"Claude CLI timed out after {CLAUDE_RUN_TIMEOUT_SECONDS}s for model {model}"
+        )
+
+    app = create_app(
+        session_store_path=tmp_path / "sessions.json", claude_runner=fake_runner
+    )
+    client = await make_client(app)
+
+    try:
+        resp = await client.post(
+            "/v1/messages",
+            json={
+                "model": "claude-sonnet-4-6",
+                "stream": False,
+                "messages": [
+                    {"role": "user", "content": [{"type": "text", "text": "hello"}]}
+                ],
+            },
+            headers={"x-claude-code-session-id": "open-session-timeout"},
+        )
+        data = await resp.json()
+
+        assert resp.status == 504
+        assert data["error"]["type"] == "timeout_error"
+    finally:
+        await client.close()
