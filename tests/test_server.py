@@ -1,3 +1,6 @@
+import json
+import sys
+
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
@@ -383,3 +386,34 @@ async def test_stream_messages_translate_tool_use_input_keys(tmp_path):
         assert '"text":"ok"' in body
     finally:
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_default_claude_stream_runner_handles_large_json_lines(monkeypatch):
+    from claude_opencode_bridge import server as bridge
+
+    payload = {
+        "type": "stream_event",
+        "event": {
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "text_delta", "text": "A" * 70000},
+        },
+    }
+    script = f'import json; print(json.dumps({payload!r}, separators=(",",":")))'
+
+    monkeypatch.setattr(
+        bridge,
+        "build_claude_stream_command",
+        lambda prompt, claude_session_id, resume, model: [sys.executable, "-c", script],
+    )
+    monkeypatch.setattr(bridge, "build_claude_env", lambda: {})
+
+    items = []
+    async for item in bridge.default_claude_stream_runner(
+        "prompt", "session", False, "claude-sonnet-4-6"
+    ):
+        items.append(item)
+
+    assert items[0]["type"] == "stream_event"
+    assert items[0]["event"]["delta"]["text"] == "A" * 70000

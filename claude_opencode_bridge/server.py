@@ -25,6 +25,11 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 7411
 DEFAULT_STATE_DIR = Path.home() / ".claude-opencode-bridge"
 DEFAULT_SESSION_STORE = DEFAULT_STATE_DIR / "sessions.json"
+CLAUDE_STREAM_READ_LIMIT_BYTES = int(
+    os.environ.get("CLAUDE_OPENCODE_BRIDGE_STREAM_READ_LIMIT")
+    or os.environ.get("APEX_OPENCODE_BRIDGE_STREAM_READ_LIMIT")
+    or str(1024 * 1024)
+)
 CLAUDE_RUN_TIMEOUT_SECONDS = int(
     os.environ.get("APEX_OPENCODE_BRIDGE_CLAUDE_TIMEOUT")
     or os.environ.get("CLAUDE_OPENCODE_BRIDGE_CLAUDE_TIMEOUT")
@@ -249,6 +254,7 @@ async def default_claude_stream_runner(
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.STDOUT,
         env=build_claude_env(),
+        limit=CLAUDE_STREAM_READ_LIMIT_BYTES,
     )
 
     loop = asyncio.get_running_loop()
