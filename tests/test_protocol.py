@@ -1,6 +1,8 @@
 from claude_opencode_bridge.protocol import (
     anthropic_message_payload,
+    build_tool_result_continuation,
     build_prompt_from_request,
+    extract_function_calls,
     extract_session_id,
     normalize_model,
     sse_frame,
@@ -40,6 +42,78 @@ def test_build_prompt_from_request_for_follow_up_turn() -> None:
     assert prompt == "latest ask"
 
 
+def test_build_tool_result_continuation_for_success() -> None:
+    prompt = build_tool_result_continuation(
+        [
+            {
+                "type": "tool_result",
+                "content": "Wrote file successfully.",
+                "is_error": False,
+            }
+        ]
+    )
+
+    assert prompt is not None
+    assert "Tool result status: success" in prompt
+    assert "Do not claim the tool was blocked" in prompt
+
+
+def test_build_prompt_from_request_prefers_tool_result_continuation() -> None:
+    payload = {
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "content": "Wrote file successfully.",
+                        "is_error": False,
+                    }
+                ],
+            }
+        ]
+    }
+
+    prompt = build_prompt_from_request(payload, initial_turn=False)
+
+    assert "Tool result status: success" in prompt
+
+
+def test_build_prompt_from_request_keeps_original_request_in_tool_result_turn() -> None:
+    payload = {
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Read AGENTS.md and tell me the first line only.",
+                    }
+                ],
+            },
+            {
+                "role": "assistant",
+                "content": [{"type": "text", "text": "Reading now."}],
+            },
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "tool_result",
+                        "content": "# AGENTS.md -- POINTER FILE",
+                        "is_error": False,
+                    }
+                ],
+            },
+        ]
+    }
+
+    prompt = build_prompt_from_request(payload, initial_turn=False)
+
+    assert "The original user request was:" in prompt
+    assert "Read AGENTS.md and tell me the first line only." in prompt
+
+
 def test_build_prompt_from_request_for_simple_initial_turn() -> None:
     payload = {
         "messages": [
@@ -50,6 +124,31 @@ def test_build_prompt_from_request_for_simple_initial_turn() -> None:
     prompt = build_prompt_from_request(payload, initial_turn=True)
 
     assert prompt == "Reply exactly: ok"
+
+
+def test_extract_function_calls_returns_plain_text_when_no_xml() -> None:
+    text, tool_calls = extract_function_calls("hello")
+
+    assert text == "hello"
+    assert tool_calls == []
+
+
+def test_extract_function_calls_parses_tool_intent_and_strips_trailing_text() -> None:
+    text, tool_calls = extract_function_calls(
+        "Reading now.\n\n"
+        "<function_calls>\n"
+        '<invoke name="Read">\n'
+        '<parameter name="file_path">/tmp/test.md</parameter>\n'
+        '<parameter name="limit">1</parameter>\n'
+        "</invoke>\n"
+        "</function_calls>\n\n"
+        "The first line is fake"
+    )
+
+    assert text == "Reading now."
+    assert tool_calls == [
+        {"name": "Read", "input": {"file_path": "/tmp/test.md", "limit": 1}}
+    ]
 
 
 def test_extract_session_id_prefers_known_headers() -> None:

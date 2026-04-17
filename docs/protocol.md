@@ -28,9 +28,26 @@ If none are present, it generates a new session id.
 
 ## Tool-use compatibility
 
-For streamed tool-use blocks, the bridge buffers the tool input deltas, normalizes known Claude CLI field names into OpenCode-compatible names, and then emits the corrected tool-use block.
+For streamed tool-use blocks, the bridge supports two compatibility layers:
+
+1. direct Claude tool-use schema normalization when native tool-use blocks appear
+2. transport-only parsing of Claude XML-like `<function_calls>` intent when built-in tools are disabled
 
 This avoids runtime failures caused by mismatched field names such as `file_path` versus `filePath`.
+
+## Transport-only tool intent
+
+In transport-only mode, Claude emits tool intent inside assistant text as:
+
+```xml
+<function_calls>
+  <invoke name="Read">
+    <parameter name="file_path">/path/file.md</parameter>
+  </invoke>
+</function_calls>
+```
+
+The bridge parses that markup, strips it from user-visible text, translates parameter names, and emits OpenCode-native tool-use events instead.
 
 ## Compatibility limit
 

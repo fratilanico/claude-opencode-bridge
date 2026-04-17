@@ -283,34 +283,6 @@ async def test_stream_messages_translate_tool_use_input_keys(tmp_path):
         yield {
             "type": "stream_event",
             "event": {
-                "type": "content_block_start",
-                "index": 0,
-                "content_block": {
-                    "type": "tool_use",
-                    "id": "toolu_test",
-                    "name": "Read",
-                    "input": {},
-                },
-            },
-        }
-        yield {
-            "type": "stream_event",
-            "event": {
-                "type": "content_block_delta",
-                "index": 0,
-                "delta": {
-                    "type": "input_json_delta",
-                    "partial_json": '{"file_path":"/tmp/test.md","limit":1}',
-                },
-            },
-        }
-        yield {
-            "type": "stream_event",
-            "event": {"type": "content_block_stop", "index": 0},
-        }
-        yield {
-            "type": "stream_event",
-            "event": {
                 "type": "message_start",
                 "message": {
                     "id": "msg_test",
@@ -328,7 +300,7 @@ async def test_stream_messages_translate_tool_use_input_keys(tmp_path):
             "type": "stream_event",
             "event": {
                 "type": "content_block_start",
-                "index": 1,
+                "index": 0,
                 "content_block": {"type": "text", "text": ""},
             },
         }
@@ -336,13 +308,24 @@ async def test_stream_messages_translate_tool_use_input_keys(tmp_path):
             "type": "stream_event",
             "event": {
                 "type": "content_block_delta",
-                "index": 1,
-                "delta": {"type": "text_delta", "text": "ok"},
+                "index": 0,
+                "delta": {"type": "text_delta", "text": "Reading now.\n\n"},
             },
         }
         yield {
             "type": "stream_event",
-            "event": {"type": "content_block_stop", "index": 1},
+            "event": {"type": "content_block_stop", "index": 0},
+        }
+        yield {
+            "type": "stream_event",
+            "event": {
+                "type": "content_block_delta",
+                "index": 0,
+                "delta": {
+                    "type": "text_delta",
+                    "text": '<function_calls>\n<invoke name="Read">\n<parameter name="file_path">/tmp/test.md</parameter>\n<parameter name="limit">1</parameter>\n</invoke>\n</function_calls>\n\nThe first line is fake',
+                },
+            },
         }
         yield {
             "type": "stream_event",
@@ -381,9 +364,11 @@ async def test_stream_messages_translate_tool_use_input_keys(tmp_path):
         body = await resp.text()
 
         assert resp.status == 200
+        assert '"text":"Reading now."' in body
         assert '\\"filePath\\":\\"/tmp/test.md\\"' in body
         assert "file_path" not in body
-        assert '"text":"ok"' in body
+        assert "function_calls" not in body
+        assert "The first line is fake" not in body
     finally:
         await client.close()
 

@@ -15,7 +15,7 @@ Use this when the plugin-native Anthropic path is authenticated but still behave
 
 - exposes a local Anthropic-style HTTP endpoint for OpenCode
 - maps OpenCode sessions to stable Claude CLI sessions
-- uses `claude --print` plus `--resume` for multi-turn continuity
+- uses Claude CLI as a transport-only backend while OpenCode remains the sole tool harness
 - streams Claude message events incrementally back to OpenCode as Anthropic-style SSE
 - ships with macOS install, uninstall, doctor, and smoke scripts
 
@@ -52,6 +52,17 @@ bash scripts/smoke-session.sh saffron
 OpenCode expects a non-empty Anthropic API key even when talking to a local bridge. This repo uses the literal dummy value `local-bridge-key` for that compatibility requirement. It is not a credential.
 
 See `examples/opencode.json` for the exact provider shape.
+
+## Model support
+
+The bridge accepts any Claude model name that the local Claude CLI accepts.
+
+Verified locally:
+
+- `anthropic/claude-sonnet-4-6`
+- `anthropic/claude-opus-4-6`
+- `anthropic/claude-opus-4-7`
+- `anthropic/opus` (alias resolved by Claude CLI)
 
 ## Repo structure
 

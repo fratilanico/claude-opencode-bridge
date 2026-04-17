@@ -7,6 +7,7 @@
 - OpenCode stays the frontend.
 - Claude CLI stays the model backend.
 - The bridge translates between Anthropic-style HTTP and local Claude CLI session execution.
+- OpenCode is the only tool executor.
 
 ## Request path
 
@@ -44,6 +45,16 @@ This preserves OpenCode's normal responsive feel much more closely than the earl
 This repo does not patch OpenCode from inside the client.
 
 Instead, it exposes a local compatibility boundary outside OpenCode. That makes it useful when authentication succeeds but the upstream Anthropic lane still behaves like a third-party app path.
+
+## Transport-only harness mode
+
+The bridge now runs Claude with built-in tools disabled and uses Claude only for model reasoning and tool intent generation.
+
+- Claude does not execute `Read`, `Write`, `Edit`, or `Bash` locally inside the bridge process.
+- OpenCode remains the sole harness and permission owner.
+- The bridge parses Claude tool intent and emits OpenCode-compatible tool-use events.
+
+This avoids the double-harness problem where Claude and OpenCode both tried to run the same tool loop.
 
 ## Session continuity
 
