@@ -54,6 +54,16 @@ The bridge now runs Claude with built-in tools disabled and uses Claude only for
 - OpenCode remains the sole harness and permission owner.
 - The bridge parses Claude tool intent and emits OpenCode-compatible tool-use events.
 
+## Stateless continuation
+
+The bridge no longer relies on hidden Claude session state for tool-result continuation.
+
+- every bridged Claude call runs with `--no-session-persistence`
+- OpenCode's current message transcript is the source of truth
+- tool-result turns are rebuilt from the current OpenCode transcript and explicit bridge prompt shaping
+
+This keeps Claude from carrying private in-process harness state across turns and matches OpenCode ownership more closely.
+
 This avoids the double-harness problem where Claude and OpenCode both tried to run the same tool loop.
 
 ## Session continuity

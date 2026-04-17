@@ -91,8 +91,10 @@ class ClaudeRunnerTimeout(ClaudeRunnerError):
     pass
 
 
-ClaudeRunner = Callable[[str, str, bool, str], Awaitable[ClaudeRunResult]]
-ClaudeStreamRunner = Callable[[str, str, bool, str], AsyncIterator[dict[str, Any]]]
+ClaudeRunner = Callable[[str, str | None, bool, str], Awaitable[ClaudeRunResult]]
+ClaudeStreamRunner = Callable[
+    [str, str | None, bool, str], AsyncIterator[dict[str, Any]]
+]
 
 
 def build_claude_env() -> dict[str, str]:
@@ -244,12 +246,14 @@ async def emit_transport_only_message(
 
 def build_claude_stream_command(
     prompt: str,
-    claude_session_id: str,
+    claude_session_id: str | None,
     resume: bool,
     model: str,
 ) -> list[str]:
     command = ["claude"]
-    if resume:
+    if claude_session_id is None:
+        command.append("--no-session-persistence")
+    elif resume:
         command.extend(["--resume", claude_session_id])
     else:
         command.extend(["--session-id", claude_session_id])
@@ -278,12 +282,14 @@ def build_claude_stream_command(
 
 def _run_claude_process(
     prompt: str,
-    claude_session_id: str,
+    claude_session_id: str | None,
     resume: bool,
     model: str,
 ) -> ClaudeRunResult:
     command = ["claude"]
-    if resume:
+    if claude_session_id is None:
+        command.append("--no-session-persistence")
+    elif resume:
         command.extend(["--resume", claude_session_id])
     else:
         command.extend(["--session-id", claude_session_id])
@@ -320,13 +326,13 @@ def _run_claude_process(
         detail = (proc.stderr or proc.stdout or "Claude CLI failed").strip()
         raise ClaudeRunnerError(detail)
     return ClaudeRunResult(
-        text=proc.stdout.strip(), claude_session_id=claude_session_id
+        text=proc.stdout.strip(), claude_session_id=claude_session_id or ""
     )
 
 
 async def default_claude_runner(
     prompt: str,
-    claude_session_id: str,
+    claude_session_id: str | None,
     resume: bool,
     model: str,
 ) -> ClaudeRunResult:
@@ -341,7 +347,7 @@ async def default_claude_runner(
 
 async def default_claude_stream_runner(
     prompt: str,
-    claude_session_id: str,
+    claude_session_id: str | None,
     resume: bool,
     model: str,
 ) -> AsyncIterator[dict[str, Any]]:
@@ -470,9 +476,17 @@ async def handle_messages(request: web.Request) -> web.StreamResponse | web.Resp
     claude_stream_runner = request.app[CLAUDE_STREAM_RUNNER_KEY]
 
     opencode_session_id = extract_session_id(request.headers)
-    claude_session_id = store.get_or_create(opencode_session_id)
-    resume = store.is_initialized(opencode_session_id)
-    prompt = build_prompt_from_request(payload, initial_turn=not resume)
+    tool_result_turn = any(
+        isinstance(block, dict) and block.get("type") == "tool_result"
+        for message in (payload.get("messages") or [])
+        if isinstance(message, dict)
+        for block in (
+            message.get("content") if isinstance(message.get("content"), list) else []
+        )
+    )
+    claude_session_id = None
+    resume = False
+    prompt = build_prompt_from_request(payload, initial_turn=not tool_result_turn)
     model = normalize_model(payload.get("model"))
 
     if payload.get("stream", True):
@@ -545,7 +559,6 @@ async def handle_messages(request: web.Request) -> web.StreamResponse | web.Resp
                         "is_error", False
                     ):
                         saw_success = True
-                        store.mark_initialized(opencode_session_id)
                     else:
                         raise ClaudeRunnerError(
                             str(item.get("result") or "Claude CLI stream failed")
@@ -601,8 +614,6 @@ async def handle_messages(request: web.Request) -> web.StreamResponse | web.Resp
             },
             status=502,
         )
-
-    store.mark_initialized(opencode_session_id)
 
     return web.json_response(anthropic_message_payload(result.text, model))
 

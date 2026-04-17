@@ -141,7 +141,7 @@ async def test_messages_endpoint_resumes_existing_session(tmp_path):
     calls = []
 
     async def fake_runner(prompt, claude_session_id, resume, model):
-        calls.append(resume)
+        calls.append((claude_session_id, resume, prompt))
         return ClaudeRunResult(text="ok", claude_session_id=claude_session_id)
 
     app = create_app(
@@ -178,7 +178,62 @@ async def test_messages_endpoint_resumes_existing_session(tmp_path):
             headers={"x-claude-code-session-id": "open-session-1"},
         )
         assert second.status == 200
-        assert calls == [False, True]
+        assert calls[0][0] is None and calls[0][1] is False
+        assert calls[1][0] is None and calls[1][1] is False
+        assert "Conversation so far:" in calls[1][2]
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_tool_result_turn_uses_stateless_continuation_prompt(tmp_path):
+    calls = []
+
+    async def fake_runner(prompt, claude_session_id, resume, model):
+        calls.append((claude_session_id, resume, prompt))
+        return ClaudeRunResult(text="ok", claude_session_id=claude_session_id or "")
+
+    app = create_app(
+        session_store_path=tmp_path / "sessions.json", claude_runner=fake_runner
+    )
+    client = await make_client(app)
+
+    try:
+        resp = await client.post(
+            "/v1/messages",
+            json={
+                "model": "claude-sonnet-4-6",
+                "stream": False,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": "Read AGENTS.md and tell me the first line only.",
+                            }
+                        ],
+                    },
+                    {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "Reading now."}],
+                    },
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "tool_result",
+                                "content": "# AGENTS.md -- POINTER FILE",
+                            }
+                        ],
+                    },
+                ],
+            },
+            headers={"x-claude-code-session-id": "open-session-tool-result"},
+        )
+        assert resp.status == 200
+        assert calls[0][0] is None and calls[0][1] is False
+        assert "The original user request was:" in calls[0][2]
     finally:
         await client.close()
 
